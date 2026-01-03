@@ -109,21 +109,70 @@ def load_sft_data():
     return ds
 
 
-@st.cache_data(show_spinner="Building sorted index...")
-def get_sorted_indices(_ds):
-    """Return indices sorted by task number ascending."""
-    task_nums = []
+@st.cache_data(show_spinner="Building index...")
+def build_task_index(_ds):
+    """Build task index with metadata."""
+    tasks = {}
+
     for i in range(len(_ds)):
-        task = _ds[i].get("task", "task_0")
-        # Extract number from "task_XXX"
-        try:
-            num = int(task.split("_")[1])
-        except (IndexError, ValueError):
-            num = 0
-        task_nums.append((i, num))
-    # Sort by task number
-    task_nums.sort(key=lambda x: x[1])
-    return [idx for idx, _ in task_nums]
+        row = _ds[i]
+        task_id = row.get("task", "")
+        conv = row.get("conversations", [])
+
+        # Get preview from first user message and count assistant chars
+        preview = ""
+        assistant_chars = 0
+        for msg in conv:
+            if msg.get("role") == "assistant":
+                assistant_chars += len(msg.get("content", ""))
+            if msg.get("role") == "user" and not preview:
+                content = msg.get("content", "")
+                if "## Goal" in content:
+                    goal_idx = content.find("## Goal")
+                    goal_text = content[goal_idx + 8 : goal_idx + 150].strip()
+                    preview = goal_text.replace("\n", " ").strip()
+                elif "## Project Information" in content:
+                    proj_idx = content.find("**Project:**")
+                    if proj_idx != -1:
+                        proj_text = content[proj_idx + 12 : proj_idx + 80].strip()
+                        preview = f"Bug fix: {proj_text.split(chr(10))[0]}"
+                else:
+                    preview = content[:100].replace("\n", " ").strip()
+
+        # Determine task type
+        if task_id.startswith("task_"):
+            task_type = "nl2bash"
+        elif task_id.startswith("inferredbugs-"):
+            task_type = "inferredbugs"
+        else:
+            task_type = "other"
+
+        tasks[task_id] = {
+            "ds_idx": i,
+            "task_id": task_id,
+            "msgs": len(conv),
+            "preview": preview,
+            "assistant_tokens": assistant_chars // 4,
+            "task_type": task_type,
+        }
+
+    # Sort tasks: first by type (task_ before inferredbugs), then by number
+    def task_sort_key(task_id):
+        if task_id.startswith("task_"):
+            try:
+                return (0, int(task_id.split("_")[1]))
+            except (IndexError, ValueError):
+                return (0, 0)
+        elif task_id.startswith("inferredbugs-"):
+            try:
+                return (1, int(task_id.split("-")[1]))
+            except (IndexError, ValueError):
+                return (1, 0)
+        return (2, 0)
+
+    sorted_task_ids = sorted(tasks.keys(), key=task_sort_key)
+
+    return tasks, sorted_task_ids
 
 
 def main():
@@ -132,11 +181,13 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<div class="subtitle">~15,200 conversation traces for supervised fine-tuning</div>',
+        '<div class="subtitle">~15,200 conversation traces for supervised fine-tuning<br>'
+        '<span style="font-size: 0.75rem; opacity: 0.7;">All traces generated with terminus-2 harness + QuantTrio/GLM-4.6-AWQ model</span></div>',
         unsafe_allow_html=True,
     )
 
     ds = load_sft_data()
+    tasks, sorted_task_ids = build_task_index(ds)
 
     # Stats row
     col1, col2, col3 = st.columns(3)
@@ -145,7 +196,7 @@ def main():
             f"""
         <div class="stat-box">
             <div class="stat-value">{len(ds):,}</div>
-            <div class="stat-label">Total Samples</div>
+            <div class="stat-label">Total Traces</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -154,22 +205,20 @@ def main():
         st.markdown(
             f"""
         <div class="stat-box">
-            <div class="stat-value">{len(ds.features)}</div>
-            <div class="stat-label">Fields</div>
+            <div class="stat-value">{len(tasks):,}</div>
+            <div class="stat-label">Unique Tasks</div>
         </div>
         """,
             unsafe_allow_html=True,
         )
     with col3:
-        sample_size = min(100, len(ds))
-        avg_turns = (
-            sum(len(ds[i]["conversations"]) for i in range(sample_size)) / sample_size
-        )
+        nl2bash_count = sum(1 for t in sorted_task_ids if t.startswith("task_"))
+        inferredbugs_count = sum(1 for t in sorted_task_ids if t.startswith("inferredbugs-"))
         st.markdown(
             f"""
         <div class="stat-box">
-            <div class="stat-value">{avg_turns:.1f}</div>
-            <div class="stat-label">Avg Messages</div>
+            <div class="stat-value">{nl2bash_count:,} / {inferredbugs_count:,}</div>
+            <div class="stat-label">nl2bash / InferredBugs</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -177,92 +226,99 @@ def main():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Build table data
+    # Filters
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        task_type_filter = st.selectbox(
+            "Task Type",
+            ["All", "nl2bash", "inferredbugs"],
+            index=0,
+        )
+    with filter_col2:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Task ID", "Msgs ↑", "Msgs ↓", "Tokens ↑", "Tokens ↓"],
+            index=0,
+        )
+
+    # Apply filters
+    filtered_task_ids = []
+    for task_id in sorted_task_ids:
+        task = tasks[task_id]
+
+        if task_type_filter != "All" and task["task_type"] != task_type_filter:
+            continue
+
+        filtered_task_ids.append(task_id)
+
+    # Apply sorting
+    if sort_by == "Msgs ↑":
+        filtered_task_ids.sort(key=lambda t: tasks[t]["msgs"])
+    elif sort_by == "Msgs ↓":
+        filtered_task_ids.sort(key=lambda t: tasks[t]["msgs"], reverse=True)
+    elif sort_by == "Tokens ↑":
+        filtered_task_ids.sort(key=lambda t: tasks[t]["assistant_tokens"])
+    elif sort_by == "Tokens ↓":
+        filtered_task_ids.sort(key=lambda t: tasks[t]["assistant_tokens"], reverse=True)
+
+    # Pagination
     page_size = 50
-    total_pages = (len(ds) + page_size - 1) // page_size
+    total_pages = max(1, (len(filtered_task_ids) + page_size - 1) // page_size)
 
     page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
     start_idx = (page - 1) * page_size
-    end_idx = min(start_idx + page_size, len(ds))
+    end_idx = min(start_idx + page_size, len(filtered_task_ids))
 
-    # Get sorted indices
-    sorted_indices = get_sorted_indices(ds)
+    st.caption(f"Showing tasks {start_idx + 1} to {end_idx} of {len(filtered_task_ids):,}")
 
-    st.caption(f"Showing rows {start_idx + 1} to {end_idx} of {len(ds):,} (sorted by task #)")
-
-    # Create table data for current page
+    # Build table for current page
     table_data = []
     for i in range(start_idx, end_idx):
-        actual_idx = sorted_indices[i]
-        row = ds[actual_idx]
-        conv = row.get("conversations", [])
-        agent = row.get("agent", "")
-        task = row.get("task", "")
+        task_id = filtered_task_ids[i]
+        task = tasks[task_id]
 
-        # Extract task number from "task_XXX"
-        try:
-            task_num = int(task.split("_")[1])
-        except (IndexError, ValueError):
-            task_num = 0
+        table_data.append({
+            "table_idx": i,
+            "task_id": task_id,
+            "msgs": task["msgs"],
+            "tokens": task["assistant_tokens"],
+            "preview": task["preview"][:250] + ("..." if len(task["preview"]) >= 250 else ""),
+        })
 
-        # Get task preview - extract after "## Goal" to skip boilerplate
-        preview = ""
-        for msg in conv:
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if "## Goal" in content:
-                    goal_idx = content.find("## Goal")
-                    goal_text = content[goal_idx + 8 : goal_idx + 150].strip()
-                    goal_text = goal_text.replace("\n", " ").strip()
-                    preview = goal_text
-                else:
-                    preview = content[:120].replace("\n", " ").strip()
-                break
-
-        table_data.append(
-            {
-                "idx": actual_idx,
-                "task_num": task_num,
-                "agent": agent,
-                "msgs": len(conv),
-                "preview": "User: " + preview + ("..." if len(preview) >= 100 else ""),
-            }
-        )
-
-    # Display as dataframe with selection
     import pandas as pd
-
     df = pd.DataFrame(table_data)
 
     event = st.dataframe(
         df,
         column_config={
-            "idx": None,  # hide internal index
-            "task_num": st.column_config.NumberColumn("Task #", width=70),
-            "agent": st.column_config.TextColumn("Agent", width=80),
-            "msgs": st.column_config.NumberColumn("Msgs", width=50),
-            "preview": st.column_config.TextColumn("Conversation Preview", width="large"),
+            "table_idx": None,
+            "task_id": st.column_config.Column("Task ID", width=120),
+            "msgs": st.column_config.Column("Msgs", width=60),
+            "tokens": st.column_config.Column("Asst Tokens", width=90),
+            "preview": st.column_config.Column("Preview", width=1200),
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
     )
 
-    # Show selected row details
+    # Show selected task details
     if event.selection and event.selection.rows:
-        selected_row_idx = event.selection.rows[0]
-        actual_idx = table_data[selected_row_idx]["idx"]
+        selected_row = event.selection.rows[0]
+        task_id = table_data[selected_row]["task_id"]
+        task = tasks[task_id]
 
         st.divider()
-        st.subheader(f"Sample #{actual_idx}")
+        st.subheader(f"Task: {task_id}")
+        st.caption(f"{task['msgs']} messages | ~{task['assistant_tokens']:,} assistant tokens")
 
-        sample = ds[actual_idx]
+        sample = ds[task["ds_idx"]]
 
-        # Show all fields
+        # Show metadata
         col1, col2 = st.columns([1, 3])
         with col1:
-            st.markdown("**Fields**")
+            st.markdown("**Metadata**")
             for key, value in sample.items():
                 if key != "conversations":
                     st.code(f"{key}: {value}", language=None)
@@ -274,7 +330,7 @@ def main():
             is_first_user = True
             for msg in conversations:
                 role = msg.get("role", "unknown")
-                content = msg.get("content", "")
+                content = msg.get("content", "").strip()
 
                 if role == "user":
                     css_class = "msg-user"
@@ -296,16 +352,15 @@ def main():
                     is_first_user = False
                     split_idx = content.find("Task Description:")
                     prefix = content[:split_idx].strip()
-                    task = content[split_idx:].strip()
+                    task_content = content[split_idx:].strip()
 
                     with st.expander("📋 Shared Prefix (boilerplate)", expanded=False):
                         st.code(prefix, language=None)
                     st.markdown("**📌 Actual Task:**")
-                    st.code(task, language=None)
+                    st.code(task_content, language=None)
                 else:
                     if role == "user":
                         is_first_user = False
-                    # Show content - truncate if too long
                     if len(content) > 2000:
                         with st.expander(f"View full content ({len(content):,} chars)"):
                             st.code(content, language=None)
