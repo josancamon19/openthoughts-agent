@@ -62,6 +62,8 @@ async def create_harbor_daytona_env(api_key: str, task_dir: Path) -> dict:
         await env.upload_dir(
             task.paths.solution_dir, str(EnvironmentPaths.solution_dir)
         )
+    # TODO: ensure this is being uploaded correctly
+    # + allow to run an agent of choice, like terminus, or another one, with a model of choice and/or tinker, get logprobs, shareable to crowdsourced dataset.
     if task.paths.tests_dir.exists():
         await env.upload_dir(task.paths.tests_dir, str(EnvironmentPaths.tests_dir))
 
