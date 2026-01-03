@@ -3,12 +3,13 @@ name = "openthoughts-agent-datasets"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "datasets>=4.4.2",
-    "daytona-sdk>=0.128.1",
     "duckdb>=1.4.3",
+    "harbor>=0.1.33",
     "streamlit>=1.52.2",
+    "watchdog>=6.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
