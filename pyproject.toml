@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets>=4.4.2",
+    "dotenv>=0.9.9",
     "duckdb>=1.4.3",
     "harbor>=0.1.33",
     "streamlit>=1.52.2",

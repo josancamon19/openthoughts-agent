@@ -9,6 +9,9 @@ import tarfile
 import tempfile
 from pathlib import Path
 from uuid import uuid4
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DAYTONA_API_URL = "https://app.daytona.io/api"
 

@@ -3,12 +3,16 @@ OpenThoughts Agent Datasets Dashboard
 """
 
 import io
+import os
 import tarfile
 
 import streamlit as st
 from datasets import load_dataset
+from dotenv import load_dotenv
 
 from env import create_harbor_daytona_env, extract_task_to_tempdir, run_async
+
+load_dotenv()
 
 st.set_page_config(
     page_title="OpenThoughts Agent",
@@ -548,8 +552,14 @@ def render_rl_tab():
 
         # Handle Open Environment button
         if open_env_clicked:
-            # Check if API key is in session
-            if (
+            # Check if API key is in environment first, then session state
+            env_api_key = os.environ.get("DAYTONA_API_KEY")
+            if env_api_key:
+                st.session_state.daytona_api_key = env_api_key
+                st.session_state.spinning_up_env = True
+                st.session_state.selected_task_binary = task_binary
+                st.session_state.selected_task_path = task["path"]
+            elif (
                 "daytona_api_key" not in st.session_state
                 or not st.session_state.daytona_api_key
             ):
