@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from env import (
     extract_task_to_tempdir,
     run_async,
-    run_claude_code_agent,
+    run_agent,
 )
 
 load_dotenv()
@@ -549,17 +549,10 @@ def render_rl_tab():
         # Header with task name and controls
         st.subheader(f"Task: {task['path']}")
 
-        # Agent selector and Start button
+        # Start button
         control_col1, control_col2 = st.columns([2, 1])
         with control_col1:
-            selected_agent = st.selectbox(
-                "Agent",
-                ["Claude Code"],
-                index=0,
-                key="agent_selector",
-                label_visibility="collapsed",
-            )
-            st.session_state.selected_agent = selected_agent
+            st.markdown("**Agent:** Claude Code")
         with control_col2:
             start_task_clicked = st.button(
                 "🚀 Start Task",
@@ -647,7 +640,7 @@ def render_rl_tab():
                         import threading
                         import time
 
-                        # Capture API key before thread (st.session_state not accessible in thread)
+                        # Capture values before thread (st.session_state not accessible in thread)
                         daytona_key = st.session_state.daytona_api_key
 
                         # Collect status messages (can't use st.write from thread)
@@ -659,7 +652,7 @@ def render_rl_tab():
                         def run_task():
                             try:
                                 task_result[0] = run_async(
-                                    run_claude_code_agent(
+                                    run_agent(
                                         task_dir=task_dir,
                                         instruction=instruction,
                                         daytona_api_key=daytona_key,
@@ -716,7 +709,7 @@ def render_rl_tab():
         # Show agent result with trajectory
         if st.session_state.get("agent_result"):
             result = st.session_state.agent_result
-            
+
             # Show test result prominently
             test_passed = result.get("test_passed")
             if test_passed is True:
@@ -725,7 +718,7 @@ def render_rl_tab():
                 st.error("❌ **Task FAILED** - Solution did not pass tests")
             else:
                 st.warning("⚠️ **Test status unknown**")
-            
+
             with st.expander("🤖 Agent Run Result", expanded=True):
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -734,7 +727,9 @@ def render_rl_tab():
                 with col2:
                     ctx = result.get("context", {})
                     st.markdown(f"**Input tokens:** {ctx.get('n_input_tokens') or 0:,}")
-                    st.markdown(f"**Output tokens:** {ctx.get('n_output_tokens') or 0:,}")
+                    st.markdown(
+                        f"**Output tokens:** {ctx.get('n_output_tokens') or 0:,}"
+                    )
                 with col3:
                     if test_passed is True:
                         st.markdown("**Result:** ✅ PASSED")
@@ -744,7 +739,7 @@ def render_rl_tab():
                         st.markdown("**Result:** ⚠️ Unknown")
 
                 st.code(result["ssh_command"], language="bash")
-                
+
                 # Show test output if failed
                 test_output = result.get("test_output")
                 if test_passed is False and test_output:

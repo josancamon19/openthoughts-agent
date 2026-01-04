@@ -1,0 +1,4 @@
+- [ ] have multiple agents, specially oss
+- [ ] model selection for those agents
+- [ ] crowdsource the trajectories, upload to GCP?
+- [ ] when oss/retrieve logprobs for them to do RL?

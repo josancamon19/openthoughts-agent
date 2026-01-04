@@ -1,5 +1,19 @@
 """
 Daytona environment management for OpenThoughts Agent using Harbor framework.
+
+## Supported Agents
+
+1. **Claude Code** (claude_code):
+   - Installation: npm via nvm
+   - Log location: `/logs/agent/sessions/projects/-app/*.jsonl`
+   - Command structure: 2 commands (setup dirs, then run agent)
+   - API key: ANTHROPIC_API_KEY
+   - Model format: "claude-opus-4-5-20251101"
+
+## Testing Agents
+   - SSH into container to verify installation: `which claude`
+   - Check install logs: `cat /installed-agent/install.sh`
+   - Check agent output: `cat /logs/agent/*.txt`
 """
 
 import asyncio
@@ -81,10 +95,11 @@ async def create_harbor_daytona_env(api_key: str, task_dir: Path) -> dict:
     }
 
 
-async def run_claude_code_agent(
+async def run_agent(
     task_dir: Path,
     instruction: str,
     daytona_api_key: str,
+    model_name: str = "claude-opus-4-5-20251101",
     status_log: list = None,
 ) -> dict:
     """
@@ -94,6 +109,7 @@ async def run_claude_code_agent(
         task_dir: Path to the extracted task directory
         instruction: The task instruction to give the agent
         daytona_api_key: Daytona API key
+        model_name: Model to use (default: claude-opus-4-5-20251101)
         status_log: Optional list to collect status messages
 
     Returns:
@@ -109,7 +125,7 @@ async def run_claude_code_agent(
     os.environ["DAYTONA_API_KEY"] = daytona_api_key
     os.environ["DAYTONA_API_URL"] = DAYTONA_API_URL
 
-    # Verify Anthropic key
+    # Verify API key
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise ValueError("ANTHROPIC_API_KEY not set in environment")
 
@@ -124,7 +140,7 @@ async def run_claude_code_agent(
     task = Task(task_dir)
 
     # Create logs directory for agent
-    logs_dir = Path(tempfile.mkdtemp(prefix="claude_agent_logs_"))
+    logs_dir = Path(tempfile.mkdtemp(prefix="claude_code_logs_"))
 
     # Create trial paths
     trial_dir = Path(tempfile.mkdtemp(prefix="harbor_trial_"))
@@ -158,17 +174,17 @@ async def run_claude_code_agent(
     if task.paths.tests_dir.exists():
         await env.upload_dir(task.paths.tests_dir, str(EnvironmentPaths.tests_dir))
 
-    # Create agent instance
-    agent = ClaudeCode(logs_dir=logs_dir)
+    # Create Claude Code agent
+    agent = ClaudeCode(logs_dir=logs_dir, model_name=model_name)
 
-    # Setup agent (installs claude-code in container)
+    # Setup agent (installs agent in container)
     status("Installing Claude Code agent...")
     await agent.setup(env)
 
     # Create agent context
     context = AgentContext()
 
-    # Run the agent (note: this calls populate_context_post_run but won't find logs yet)
+    # Run the agent
     status("Running agent...")
 
     # We manually run the commands instead of using agent.run() so we can download logs first
@@ -239,7 +255,7 @@ async def run_claude_code_agent(
     if not download_success:
         stdout_file = logs_dir / "command-1" / "stdout.txt"
         if stdout_file.exists():
-            # Create the expected sessions directory structure
+            # Create the expected sessions directory structure for Claude Code
             sessions_dir = logs_dir / "sessions" / "projects" / "-app"
             sessions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -260,7 +276,7 @@ async def run_claude_code_agent(
     try:
         # Create verifier log directory
         await env.exec(command="mkdir -p /logs/verifier")
-        
+
         # Run the test script
         test_result = await env.exec(
             command="bash /tests/test.sh 2>&1",
@@ -269,12 +285,14 @@ async def run_claude_code_agent(
         test_output = test_result.stdout or ""
         if test_result.stderr:
             test_output += "\n" + test_result.stderr
-        
+
         # Read the reward file
-        reward_result = await env.exec(command="cat /logs/verifier/reward.txt 2>/dev/null || echo 0")
+        reward_result = await env.exec(
+            command="cat /logs/verifier/reward.txt 2>/dev/null || echo 0"
+        )
         reward_str = (reward_result.stdout or "0").strip()
         test_passed = reward_str == "1"
-        
+
         if test_passed:
             status("✅ Tests PASSED!")
         else:
