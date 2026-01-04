@@ -253,6 +253,36 @@ async def run_claude_code_agent(
     agent.populate_context_post_run(context)
     status("Agent run complete!")
 
+    # Run tests to verify the solution
+    status("Running verification tests...")
+    test_passed = None
+    test_output = None
+    try:
+        # Create verifier log directory
+        await env.exec(command="mkdir -p /logs/verifier")
+        
+        # Run the test script
+        test_result = await env.exec(
+            command="bash /tests/test.sh 2>&1",
+            timeout_sec=60,
+        )
+        test_output = test_result.stdout or ""
+        if test_result.stderr:
+            test_output += "\n" + test_result.stderr
+        
+        # Read the reward file
+        reward_result = await env.exec(command="cat /logs/verifier/reward.txt 2>/dev/null || echo 0")
+        reward_str = (reward_result.stdout or "0").strip()
+        test_passed = reward_str == "1"
+        
+        if test_passed:
+            status("✅ Tests PASSED!")
+        else:
+            status(f"❌ Tests FAILED (reward={reward_str})")
+    except Exception as e:
+        status(f"⚠️ Test verification error: {e}")
+        test_passed = None
+
     # Load trajectory if available
     trajectory = None
     trajectory_path = logs_dir / "trajectory.json"
@@ -273,6 +303,8 @@ async def run_claude_code_agent(
         "logs_dir": str(logs_dir),
         "trajectory": trajectory,
         "raw_output": raw_output,
+        "test_passed": test_passed,
+        "test_output": test_output,
         "context": {
             "cost_usd": context.cost_usd,
             "n_input_tokens": context.n_input_tokens,

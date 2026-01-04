@@ -716,19 +716,40 @@ def render_rl_tab():
         # Show agent result with trajectory
         if st.session_state.get("agent_result"):
             result = st.session_state.agent_result
+            
+            # Show test result prominently
+            test_passed = result.get("test_passed")
+            if test_passed is True:
+                st.success("✅ **Task PASSED** - Agent solution verified!")
+            elif test_passed is False:
+                st.error("❌ **Task FAILED** - Solution did not pass tests")
+            else:
+                st.warning("⚠️ **Test status unknown**")
+            
             with st.expander("🤖 Agent Run Result", expanded=True):
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown(f"**Task:** `{result['task_name']}`")
                     st.markdown(f"**Sandbox ID:** `{result['sandbox_id']}`")
                 with col2:
                     ctx = result.get("context", {})
                     st.markdown(f"**Input tokens:** {ctx.get('n_input_tokens') or 0:,}")
-                    st.markdown(
-                        f"**Output tokens:** {ctx.get('n_output_tokens') or 0:,}"
-                    )
+                    st.markdown(f"**Output tokens:** {ctx.get('n_output_tokens') or 0:,}")
+                with col3:
+                    if test_passed is True:
+                        st.markdown("**Result:** ✅ PASSED")
+                    elif test_passed is False:
+                        st.markdown("**Result:** ❌ FAILED")
+                    else:
+                        st.markdown("**Result:** ⚠️ Unknown")
 
                 st.code(result["ssh_command"], language="bash")
+                
+                # Show test output if failed
+                test_output = result.get("test_output")
+                if test_passed is False and test_output:
+                    with st.expander("📋 Test Output", expanded=True):
+                        st.code(test_output, language=None)
 
                 # Show trajectory
                 trajectory = result.get("trajectory")
