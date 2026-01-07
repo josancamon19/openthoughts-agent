@@ -4,21 +4,21 @@ Daytona environment management for OpenThoughts Agent using Harbor framework.
 ## Supported Agents
 
 1. **Claude Code** (claude_code):
+   - Type: Installed agent (runs inside container)
    - Installation: npm via nvm
    - Log location: `/logs/agent/sessions/projects/-app/*.jsonl`
    - Command structure: 2 commands (setup dirs, then run agent)
    - API key: ANTHROPIC_API_KEY
-   - Model format: "anthropic/claude-opus-4-5-20251101"
+   - Model format: "claude-opus-4-5-20251101"
 
-2. **Mini SWE Agent** (mini_swe_agent):
-   - Installation: uv tool install from git
-   - Log location: `/logs/agent/mini-swe-agent.trajectory.json`
-   - Command structure: 1 command (run mini CLI)
-   - API key: ANTHROPIC_API_KEY (or provider-specific key)
-   - Model format: "anthropic/claude-opus-4-5-20251101"
+2. **Terminus2** (terminus_2):
+   - Type: External agent (runs outside container, interfaces via environment)
+   - Log location: `/logs/agent/trajectory.json`
+   - API key: ANTHROPIC_API_KEY
+   - Model format: "anthropic/claude-opus-4-5-20251101" (LiteLLM format)
 
 ## Testing Agents
-   - SSH into container to verify installation: `which claude` or `which mini`
+   - SSH into container to verify installation: `which claude`
    - Check install logs: `cat /installed-agent/install.sh`
    - Check agent output: `cat /logs/agent/*.txt`
 """
@@ -44,24 +44,26 @@ class AgentType(Enum):
     """Supported agent types for the harness."""
 
     CLAUDE_CODE = "claude_code"
-    MINI_SWE_AGENT = "mini_swe_agent"
+    TERMINUS_2 = "terminus_2"
 
 
 # Agent configuration including display names, API key requirements, and model formats
 AGENT_CONFIG = {
     AgentType.CLAUDE_CODE: {
         "display_name": "Claude Code",
+        "agent_class": "installed",
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_description": "Anthropic API Key",
         "default_model": "claude-opus-4-5-20251101",
         "log_file": "sessions/projects/-app/*.jsonl",
     },
-    AgentType.MINI_SWE_AGENT: {
-        "display_name": "Mini SWE Agent",
-        "api_key_env": "ANTHROPIC_API_KEY",  # Uses same key for Anthropic models
+    AgentType.TERMINUS_2: {
+        "display_name": "Terminus2",
+        "agent_class": "external",
+        "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_description": "Anthropic API Key",
         "default_model": "anthropic/claude-opus-4-5-20251101",
-        "log_file": "mini-swe-agent.trajectory.json",
+        "log_file": "trajectory.json",
     },
 }
 
@@ -135,10 +137,10 @@ def _get_agent_class(agent_type: AgentType):
         from harbor.agents.installed.claude_code import ClaudeCode
 
         return ClaudeCode
-    elif agent_type == AgentType.MINI_SWE_AGENT:
-        from harbor.agents.installed.mini_swe_agent import MiniSweAgent
+    elif agent_type == AgentType.TERMINUS_2:
+        from harbor.agents.terminus_2.terminus_2 import Terminus2
 
-        return MiniSweAgent
+        return Terminus2
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -238,176 +240,141 @@ async def run_agent(
     # Create the agent with appropriate parameters
     agent = AgentClass(logs_dir=logs_dir, model_name=model_name)
 
-    # Setup agent (installs agent in container)
-    status(f"Installing {agent_display_name} agent...")
-    await agent.setup(env)
-
     # Create agent context
     context = AgentContext()
+
+    # Determine agent class type (installed vs external)
+    is_external_agent = agent_config.get("agent_class") == "external"
+
+    # Setup agent
+    if is_external_agent:
+        status(f"Setting up {agent_display_name} agent...")
+    else:
+        status(f"Installing {agent_display_name} agent...")
+    await agent.setup(env)
 
     # Run the agent
     status(f"Running {agent_display_name}...")
 
-    # We manually run the commands instead of using agent.run() so we can download logs first
-    from harbor.utils.templating import render_prompt_template
+    # Track exec_commands for later use (only for installed agents)
+    exec_commands = []
 
-    rendered_instruction = instruction
-    if agent._prompt_template_path:
-        rendered_instruction = render_prompt_template(
-            agent._prompt_template_path, instruction
-        )
+    if is_external_agent:
+        # External agents (like Terminus2) use the run() method directly
+        status(f"{agent_display_name} is working on the task...")
+        await agent.run(instruction, env, context)
+    else:
+        # Installed agents use create_run_agent_commands and manual execution
+        from harbor.utils.templating import render_prompt_template
 
-    exec_commands = agent.create_run_agent_commands(rendered_instruction)
-    num_commands = len(exec_commands)
+        rendered_instruction = instruction
+        if agent._prompt_template_path:
+            rendered_instruction = render_prompt_template(
+                agent._prompt_template_path, instruction
+            )
 
-    for i, exec_input in enumerate(exec_commands):
-        command_dir = logs_dir / f"command-{i}"
-        command_dir.mkdir(parents=True, exist_ok=True)
-        (command_dir / "command.txt").write_text(exec_input.command)
+        exec_commands = agent.create_run_agent_commands(rendered_instruction)
+        num_commands = len(exec_commands)
 
-        # Only show meaningful progress, not raw commands
-        if num_commands == 1:
-            status(f"{agent_display_name} is working on the task...")
-        elif i == 0:
-            status("Setting up agent environment...")
-        else:
-            status(f"{agent_display_name} is working on the task...")
+        for i, exec_input in enumerate(exec_commands):
+            command_dir = logs_dir / f"command-{i}"
+            command_dir.mkdir(parents=True, exist_ok=True)
+            (command_dir / "command.txt").write_text(exec_input.command)
 
-        result = await env.exec(
-            command=exec_input.command,
-            cwd=exec_input.cwd,
-            env=exec_input.env,
-            timeout_sec=exec_input.timeout_sec,
-        )
+            # Only show meaningful progress, not raw commands
+            if num_commands == 1:
+                status(f"{agent_display_name} is working on the task...")
+            elif i == 0:
+                status("Setting up agent environment...")
+            else:
+                status(f"{agent_display_name} is working on the task...")
 
-        (command_dir / "return-code.txt").write_text(str(result.return_code))
-        if result.stdout:
-            (command_dir / "stdout.txt").write_text(result.stdout)
-        if result.stderr:
-            (command_dir / "stderr.txt").write_text(result.stderr)
+            result = await env.exec(
+                command=exec_input.command,
+                cwd=exec_input.cwd,
+                env=exec_input.env,
+                timeout_sec=exec_input.timeout_sec,
+            )
 
-        # Report command completion with return code
-        if result.return_code != 0:
-            status(f"⚠️ Command {i} failed with exit code {result.return_code}")
-            # Show stderr/stdout for debugging
-            if result.stderr:
-                print(f"[DEBUG] Command {i} stderr:\n{result.stderr[:1000]}")
+            (command_dir / "return-code.txt").write_text(str(result.return_code))
             if result.stdout:
-                print(
-                    f"[DEBUG] Command {i} stdout (first 1000 chars):\n{result.stdout[:1000]}"
-                )
+                (command_dir / "stdout.txt").write_text(result.stdout)
+            if result.stderr:
+                (command_dir / "stderr.txt").write_text(result.stderr)
 
-    # Try to download agent logs from container to local logs_dir
+            # Report command completion with return code
+            if result.return_code != 0:
+                status(f"⚠️ Command {i} failed with exit code {result.return_code}")
+                # Show stderr/stdout for debugging
+                if result.stderr:
+                    print(f"[DEBUG] Command {i} stderr:\n{result.stderr[:1000]}")
+                if result.stdout:
+                    print(
+                        f"[DEBUG] Command {i} stdout (first 1000 chars):\n{result.stdout[:1000]}"
+                    )
+
+    # Collect agent trajectory
     status("Collecting agent trajectory...")
     container_agent_dir = str(EnvironmentPaths.agent_dir)  # /logs/agent
 
-    # First, check what files exist in the agent logs directory
-    ls_result = await env.exec(
-        command=f"ls -la {container_agent_dir} 2>/dev/null || echo 'Directory not found'"
-    )
-    if ls_result.stdout:
-        print(f"[DEBUG] Container agent dir contents:\n{ls_result.stdout}")
-
-    # For Mini SWE Agent, show the txt log content to help debug errors
-    if agent_type == AgentType.MINI_SWE_AGENT:
-        txt_log_result = await env.exec(
-            command=f"cat {container_agent_dir}/mini-swe-agent.txt 2>/dev/null"
+    if is_external_agent:
+        # External agents (like Terminus2) write trajectory directly to logs_dir
+        # The trajectory.json should already be in logs_dir
+        trajectory_path = logs_dir / "trajectory.json"
+        if trajectory_path.exists():
+            print(f"[DEBUG] Found trajectory at {trajectory_path}")
+        else:
+            print(f"[DEBUG] No trajectory.json found in {logs_dir}")
+    else:
+        # For installed agents, download logs from container
+        # First, check what files exist in the agent logs directory
+        ls_result = await env.exec(
+            command=f"ls -la {container_agent_dir} 2>/dev/null || echo 'Directory not found'"
         )
-        if txt_log_result.stdout:
-            print(f"[DEBUG] mini-swe-agent.txt content:\n{txt_log_result.stdout}")
-        # Also check if mini is installed and accessible
-        which_result = await env.exec(
-            command="which mini 2>/dev/null || echo 'mini not found'"
-        )
-        print(
-            f"[DEBUG] mini location: {which_result.stdout.strip() if which_result.stdout else 'not found'}"
-        )
+        if ls_result.stdout:
+            print(f"[DEBUG] Container agent dir contents:\n{ls_result.stdout}")
 
-    download_success = False
-    try:
-        await env.download_dir(
-            source_dir=container_agent_dir,
-            target_dir=str(logs_dir),
-        )
-        # Check if we got the expected log files based on agent type
-        if agent_type == AgentType.CLAUDE_CODE:
-            sessions_dir = logs_dir / "sessions"
-            if sessions_dir.exists():
-                import subprocess
-
-                find_result = subprocess.run(
-                    ["find", str(sessions_dir), "-type", "f", "-name", "*.jsonl"],
-                    capture_output=True,
-                    text=True,
-                )
-                if find_result.stdout.strip():
-                    download_success = True
-        elif agent_type == AgentType.MINI_SWE_AGENT:
-            # Mini SWE Agent writes trajectory to a JSON file
-            trajectory_file = logs_dir / "mini-swe-agent.trajectory.json"
-            if trajectory_file.exists():
-                download_success = True
-                print(f"[DEBUG] Found trajectory at {trajectory_file}")
-    except Exception as e:
-        print(f"[DEBUG] Download dir failed: {e}")
-
-    # For Mini SWE Agent, try to get trajectory content directly via cat
-    if agent_type == AgentType.MINI_SWE_AGENT and not download_success:
+        download_success = False
         try:
-            trajectory_path_in_container = (
-                f"{container_agent_dir}/mini-swe-agent.trajectory.json"
+            await env.download_dir(
+                source_dir=container_agent_dir,
+                target_dir=str(logs_dir),
             )
-            cat_result = await env.exec(
-                command=f"cat {trajectory_path_in_container} 2>/dev/null"
-            )
-            if cat_result.stdout and cat_result.return_code == 0:
-                # Write the trajectory to local file
-                trajectory_file = logs_dir / "mini-swe-agent.trajectory.json"
-                trajectory_file.write_text(cat_result.stdout)
-                download_success = True
-                print(
-                    f"[DEBUG] Retrieved trajectory via cat, saved to {trajectory_file}"
-                )
-            else:
-                print(
-                    f"[DEBUG] Could not cat trajectory file: rc={cat_result.return_code}"
-                )
-        except Exception as e:
-            print(f"[DEBUG] Failed to cat trajectory: {e}")
-
-    # Fallback: Create expected log structure from stdout if download failed
-    if not download_success:
-        # Find the last command's stdout (where agent output typically is)
-        stdout_file = None
-        for i in range(len(exec_commands) - 1, -1, -1):
-            candidate = logs_dir / f"command-{i}" / "stdout.txt"
-            if candidate.exists():
-                stdout_file = candidate
-                break
-
-        if stdout_file and stdout_file.exists():
-            import shutil
-
+            # Check if we got the expected log files based on agent type
             if agent_type == AgentType.CLAUDE_CODE:
-                # Create the expected sessions directory structure for Claude Code
-                sessions_dir = logs_dir / "sessions" / "projects" / "-app"
-                sessions_dir.mkdir(parents=True, exist_ok=True)
-                session_jsonl = sessions_dir / "session.jsonl"
-                shutil.copy(stdout_file, session_jsonl)
-            elif agent_type == AgentType.MINI_SWE_AGENT:
-                # Mini SWE Agent outputs to mini-swe-agent.txt, try to get it
-                mini_txt = logs_dir / "mini-swe-agent.txt"
-                if not mini_txt.exists():
-                    # Try downloading the txt log directly
-                    try:
-                        txt_result = await env.exec(
-                            command=f"cat {container_agent_dir}/mini-swe-agent.txt 2>/dev/null"
-                        )
-                        if txt_result.stdout:
-                            mini_txt.write_text(txt_result.stdout)
-                            print(f"[DEBUG] Saved mini-swe-agent.txt to {mini_txt}")
-                    except Exception:
-                        pass
+                sessions_dir = logs_dir / "sessions"
+                if sessions_dir.exists():
+                    import subprocess
+
+                    find_result = subprocess.run(
+                        ["find", str(sessions_dir), "-type", "f", "-name", "*.jsonl"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if find_result.stdout.strip():
+                        download_success = True
+        except Exception as e:
+            print(f"[DEBUG] Download dir failed: {e}")
+
+        # Fallback: Create expected log structure from stdout if download failed
+        if not download_success:
+            # Find the last command's stdout (where agent output typically is)
+            stdout_file = None
+            for i in range(len(exec_commands) - 1, -1, -1):
+                candidate = logs_dir / f"command-{i}" / "stdout.txt"
+                if candidate.exists():
+                    stdout_file = candidate
+                    break
+
+            if stdout_file and stdout_file.exists():
+                import shutil
+
+                if agent_type == AgentType.CLAUDE_CODE:
+                    # Create the expected sessions directory structure for Claude Code
+                    sessions_dir = logs_dir / "sessions" / "projects" / "-app"
+                    sessions_dir.mkdir(parents=True, exist_ok=True)
+                    session_jsonl = sessions_dir / "session.jsonl"
+                    shutil.copy(stdout_file, session_jsonl)
 
     # Parse trajectory from logs
     try:
@@ -456,23 +423,18 @@ async def run_agent(
             trajectory = json.load(f)
 
     # Read raw agent output for debugging
-    # For Claude Code, output is in command-1; for Mini SWE Agent, in command-0
     raw_output = None
-    for i in range(len(exec_commands) - 1, -1, -1):
-        agent_output_file = logs_dir / f"command-{i}" / "stdout.txt"
-        if agent_output_file.exists():
-            raw_output = agent_output_file.read_text()
-            break
-
-    # Also check for mini-swe-agent.txt if it exists
-    if agent_type == AgentType.MINI_SWE_AGENT:
-        mini_txt = logs_dir / "mini-swe-agent.txt"
-        if mini_txt.exists():
-            mini_output = mini_txt.read_text()
-            if mini_output:
-                raw_output = mini_output
-        # Print debug info about what we captured
-        print(f"[DEBUG] Raw output length: {len(raw_output) if raw_output else 0}")
+    if is_external_agent:
+        # For external agents, raw output is in the trajectory
+        if trajectory:
+            raw_output = json.dumps(trajectory, indent=2)
+    else:
+        # For installed agents, read from command stdout
+        for i in range(len(exec_commands) - 1, -1, -1):
+            agent_output_file = logs_dir / f"command-{i}" / "stdout.txt"
+            if agent_output_file.exists():
+                raw_output = agent_output_file.read_text()
+                break
 
     return {
         "sandbox_id": env._sandbox.id,

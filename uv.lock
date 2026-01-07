@@ -941,7 +941,7 @@ wheels = [
 
 [[package]]
 name = "harbor"
-version = "0.1.33"
+version = "0.1.34"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "claude-agent-sdk" },
@@ -968,9 +968,9 @@ dependencies = [
     { name = "toml" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/e9/95bfc9fc84fba73ffd39a28583d944afb96f95b2cfe9e92aac2785fa7b57/harbor-0.1.33.tar.gz", hash = "sha256:7a0099f2eee517927706cb6fdd9c363176236df32c75c7fc4b4a24568d0d43b3", size = 328667, upload-time = "2026-01-01T16:59:02.626Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/85/a3e049072584dc5c34e7a2a876d20e899923f89e4f4d85cece10393a624a/harbor-0.1.34.tar.gz", hash = "sha256:dd79704f6cd6530bf16671153056b9ad099b669b45b00c402de869b1ab9bee7f", size = 333295, upload-time = "2026-01-05T18:50:47.313Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/a6/514e875c7ca6f5ff4580096233b959ac60b6cc266148b3160f334eb7ceda/harbor-0.1.33-py3-none-any.whl", hash = "sha256:3459f16d7cb84e13002605bf6b591412b09cfea09e8af5dcbda4313f25459367", size = 402507, upload-time = "2026-01-01T16:59:04.786Z" },
+    { url = "https://files.pythonhosted.org/packages/21/81/efb43d0b0b3e6e432c3fe917cbaeba193a8bf8e6d953f960828c65b052a9/harbor-0.1.34-py3-none-any.whl", hash = "sha256:10d083d3e4fd9166d02ee8aecac0a1451b9a520c6306fc3503fbf1ab6269ff09", size = 408545, upload-time = "2026-01-05T18:50:48.839Z" },
 ]
 
 [[package]]
@@ -1780,7 +1780,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.4.2" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "duckdb", specifier = ">=1.4.3" },
-    { name = "harbor", specifier = ">=0.1.33" },
+    { name = "harbor", specifier = ">=0.1.34" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "ruff", specifier = ">=0.14.10" },
     { name = "streamlit", specifier = ">=1.52.2" },
