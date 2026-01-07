@@ -14,6 +14,8 @@ from env import (
     extract_task_to_tempdir,
     run_async,
     run_agent,
+    AgentType,
+    AGENT_CONFIG,
 )
 
 load_dotenv()
@@ -549,11 +551,29 @@ def render_rl_tab():
         # Header with task name and controls
         st.subheader(f"Task: {task['path']}")
 
-        # Start button
-        control_col1, control_col2 = st.columns([2, 1])
+        # Agent selection and Start button
+        control_col1, control_col2, control_col3 = st.columns([2, 2, 1])
         with control_col1:
-            st.markdown("**Agent:** Claude Code")
+            # Build agent options from AGENT_CONFIG
+            agent_options = {
+                AGENT_CONFIG[agent_type]["display_name"]: agent_type
+                for agent_type in AgentType
+            }
+            selected_agent_name = st.selectbox(
+                "🤖 Agent Harness",
+                options=list(agent_options.keys()),
+                index=0,
+                key="agent_harness_select",
+            )
+            selected_agent_type = agent_options[selected_agent_name]
         with control_col2:
+            # Show API key requirement for selected agent
+            api_key_env = AGENT_CONFIG[selected_agent_type]["api_key_env"]
+            api_key_desc = AGENT_CONFIG[selected_agent_type]["api_key_description"]
+            default_model = AGENT_CONFIG[selected_agent_type]["default_model"]
+            st.caption(f"**Requires:** `{api_key_env}`")
+            st.caption(f"**Model:** `{default_model}`")
+        with control_col3:
             start_task_clicked = st.button(
                 "🚀 Start Task",
                 type="primary",
@@ -573,14 +593,18 @@ def render_rl_tab():
             if env_api_key:
                 st.session_state.daytona_api_key = env_api_key
 
+            # Get the required API key for the selected agent
+            required_api_key = AGENT_CONFIG[selected_agent_type]["api_key_env"]
+
             if not st.session_state.get("daytona_api_key"):
                 st.session_state.show_api_key_dialog = True
-            elif not os.environ.get("ANTHROPIC_API_KEY"):
-                st.error("ANTHROPIC_API_KEY not found in .env")
+            elif not os.environ.get(required_api_key):
+                st.error(f"{required_api_key} not found in .env (required for {selected_agent_name})")
             else:
                 st.session_state.running_task = True
                 st.session_state.task_binary = task_binary
                 st.session_state.task_path = task["path"]
+                st.session_state.selected_agent_type = selected_agent_type
 
         # API Key dialog
         if st.session_state.get("show_api_key_dialog", False):
@@ -604,6 +628,7 @@ def render_rl_tab():
                             st.session_state.running_task = True
                             st.session_state.task_binary = task_binary
                             st.session_state.task_path = task["path"]
+                            st.session_state.selected_agent_type = selected_agent_type
                             st.rerun()
                         else:
                             st.error(
@@ -618,8 +643,10 @@ def render_rl_tab():
         if st.session_state.get("running_task", False):
             st.session_state.running_task = False
             task_binary_to_use = st.session_state.get("task_binary", task_binary)
+            agent_type_to_use = st.session_state.get("selected_agent_type", AgentType.CLAUDE_CODE)
+            agent_name_to_use = AGENT_CONFIG[agent_type_to_use]["display_name"]
 
-            with st.status("🚀 Starting task...", expanded=True) as task_status:
+            with st.status(f"🚀 Starting task with {agent_name_to_use}...", expanded=True) as task_status:
                 st.write("Extracting task files...")
                 task_dir = extract_task_to_tempdir(task_binary_to_use)
 
@@ -634,6 +661,7 @@ def render_rl_tab():
                     else:
                         instruction = "Complete the task in this environment."
 
+                    st.write(f"**Agent:** {agent_name_to_use}")
                     st.write(f"**Goal:** {instruction[:300]}...")
 
                     try:
@@ -656,6 +684,7 @@ def render_rl_tab():
                                         task_dir=task_dir,
                                         instruction=instruction,
                                         daytona_api_key=daytona_key,
+                                        agent_type=agent_type_to_use,
                                         status_log=status_log,
                                     )
                                 )
@@ -723,13 +752,15 @@ def render_rl_tab():
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown(f"**Task:** `{result['task_name']}`")
-                    st.markdown(f"**Sandbox ID:** `{result['sandbox_id']}`")
+                    st.markdown(f"**Agent:** `{result.get('agent_display_name', 'Unknown')}`")
+                    st.markdown(f"**Model:** `{result.get('model_name', 'Unknown')}`")
                 with col2:
                     ctx = result.get("context", {})
                     st.markdown(f"**Input tokens:** {ctx.get('n_input_tokens') or 0:,}")
                     st.markdown(
                         f"**Output tokens:** {ctx.get('n_output_tokens') or 0:,}"
                     )
+                    st.markdown(f"**Sandbox ID:** `{result['sandbox_id']}`")
                 with col3:
                     if test_passed is True:
                         st.markdown("**Result:** ✅ PASSED")
