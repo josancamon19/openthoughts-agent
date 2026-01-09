@@ -795,13 +795,21 @@ def render_rl_tab():
 
                     # Filter and count meaningful events
                     # For ATIF format, use 'source' field; for Claude Code, use 'type' field
+                    # For Codex, count item.completed events
                     meaningful_events = [
                         s for s in steps 
-                        if s.get("type") not in ("system", "result")
+                        if s.get("type") not in ("system", "result", "thread.started", "turn.started", "turn.completed", "item.started")
                         and s.get("source") not in ("system",)
                     ]
                     st.caption(f"{len(meaningful_events)} turns (raw: {len(steps)} steps)")
                     print(f"[UI DEBUG] meaningful_events count: {len(meaningful_events)}, raw steps: {len(steps)}")
+                    
+                    # Show note for Codex (reasoning is encrypted by OpenAI)
+                    is_codex = trajectory.get("source") == "codex.txt" or any(
+                        s.get("type") in ("thread.started", "item.completed") for s in steps[:5]
+                    )
+                    if is_codex:
+                        st.info("🔐 **Codex reasoning is encrypted** - OpenAI doesn't expose thinking traces in plaintext.")
 
                     for step in steps:
                         event_type = step.get("type", "unknown")
@@ -810,6 +818,55 @@ def render_rl_tab():
                         if event_type == "system":
                             continue
                         if event_type == "result":
+                            continue
+                        
+                        # Skip Codex lifecycle events
+                        if event_type in ("thread.started", "turn.started", "turn.completed", "item.started"):
+                            continue
+                        
+                        # Handle Codex item.completed events
+                        if event_type == "item.completed":
+                            item = step.get("item", {})
+                            item_type = item.get("type", "")
+                            
+                            if item_type == "command_execution":
+                                command = item.get("command", "")
+                                output = item.get("aggregated_output", "")
+                                exit_code = item.get("exit_code")
+                                status = item.get("status", "")
+                                
+                                st.markdown(
+                                    '<div class="msg-assistant"><div class="msg-role">🤖 codex</div></div>',
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown("**🔧 Command:**")
+                                st.code(command, language="bash")
+                                
+                                if output:
+                                    status_icon = "✅" if status == "completed" else "❌"
+                                    label = f"{status_icon} Output (exit: {exit_code})"
+                                    with st.expander(label, expanded=status != "completed"):
+                                        st.code(output.replace("\r\n", "\n"), language=None)
+                            
+                            elif item_type == "agent_message":
+                                text = item.get("text", "")
+                                if text:
+                                    st.markdown(
+                                        '<div class="msg-assistant"><div class="msg-role">🤖 codex</div></div>',
+                                        unsafe_allow_html=True,
+                                    )
+                                    st.markdown(text)
+                            
+                            continue
+                        
+                        # Handle Codex error events
+                        if event_type == "error":
+                            error_msg = step.get("message", "Unknown error")
+                            st.markdown(
+                                '<div class="msg-system"><div class="msg-role">⚠️ error</div></div>',
+                                unsafe_allow_html=True,
+                            )
+                            st.error(error_msg)
                             continue
 
                         # Parse message content based on event type

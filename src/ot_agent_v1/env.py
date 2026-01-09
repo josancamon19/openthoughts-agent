@@ -60,6 +60,9 @@ DEFAULT_MAX_THINKING_TOKENS = "10000"
 # Default Gemini model
 DEFAULT_GEMINI_MODEL = "gemini/gemini-3-flash-preview"
 
+# Default OpenAI model for Codex
+DEFAULT_OPENAI_MODEL = "gpt-5.1-codex-max"
+
 # Agent configuration - display names and default models
 # Using Harbor's AgentName values as keys
 AGENT_CONFIG = {
@@ -77,6 +80,11 @@ AGENT_CONFIG = {
         "display_name": "Gemini CLI",
         "api_key_env": "GEMINI_API_KEY",
         "default_model": DEFAULT_GEMINI_MODEL,  # Gemini format
+    },
+    "codex": {
+        "display_name": "Codex (OpenAI)",
+        "api_key_env": "OPENAI_API_KEY",
+        "default_model": DEFAULT_OPENAI_MODEL,  # OpenAI model name
     },
 }
 
@@ -296,22 +304,35 @@ async def convert_logs_to_trajectory(
         import traceback
         traceback.print_exc()
 
-    # Fallback: If trajectory.json wasn't created, try to convert claude-code.txt
+    # Fallback: If trajectory.json wasn't created, try to convert native log files
     trajectory_path = logs_dir / "trajectory.json"
     if not trajectory_path.exists():
+        # Try claude-code.txt first
         claude_code_txt = logs_dir / "claude-code.txt"
         if claude_code_txt.exists():
             print("[DEBUG] trajectory.json not found, using claude-code.txt as fallback")
             try:
-                # claude-code.txt is JSONL format - convert to trajectory format
                 lines = claude_code_txt.read_text().strip().split("\n")
                 events = [json.loads(line) for line in lines if line.strip()]
-                # Save as trajectory.json
                 with open(trajectory_path, "w") as f:
                     json.dump({"events": events, "source": "claude-code.txt"}, f, indent=2)
                 print(f"[DEBUG] Created trajectory.json from claude-code.txt ({len(events)} events)")
             except Exception as e:
                 print(f"[DEBUG] Failed to convert claude-code.txt: {e}")
+        
+        # Try codex.txt if still no trajectory
+        if not trajectory_path.exists():
+            codex_txt = logs_dir / "codex.txt"
+            if codex_txt.exists():
+                print("[DEBUG] trajectory.json not found, using codex.txt as fallback")
+                try:
+                    lines = codex_txt.read_text().strip().split("\n")
+                    events = [json.loads(line) for line in lines if line.strip()]
+                    with open(trajectory_path, "w") as f:
+                        json.dump({"events": events, "source": "codex.txt"}, f, indent=2)
+                    print(f"[DEBUG] Created trajectory.json from codex.txt ({len(events)} events)")
+                except Exception as e:
+                    print(f"[DEBUG] Failed to convert codex.txt: {e}")
 
 
 async def run_verification(env, status_fn: Callable[[str], None], logs_dir: Path):
