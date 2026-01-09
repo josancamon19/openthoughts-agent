@@ -33,6 +33,7 @@ import os
 import sys
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -816,22 +817,79 @@ async def run_agent(
     }
 
 
+class _AsyncRunner:
+    """
+    A persistent async runner that maintains a single event loop in a background thread.
+    This avoids the "Event loop is closed" error by keeping the loop alive between calls.
+
+    The Daytona SDK's aiohttp client caches event loop references. When using asyncio.run(),
+    the loop is closed after each call, but the SDK's cached connections still reference
+    the old (now closed) event loop, causing "Event loop is closed" errors on subsequent calls.
+
+    This class keeps a single event loop alive in a background thread, so all Daytona SDK
+    operations use the same (still-open) event loop.
+    """
+
+    def __init__(self):
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._started = threading.Event()
+        self._lock = threading.Lock()
+
+    def _run_loop(self):
+        """Run the event loop in the background thread."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._started.set()
+        self._loop.run_forever()
+
+    def start(self):
+        """Start the background event loop thread if not already running."""
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._started.clear()
+                self._thread = threading.Thread(target=self._run_loop, daemon=True)
+                self._thread.start()
+                self._started.wait()
+                print("[AsyncRunner] Started persistent background event loop")
+
+    def run(self, coro) -> any:
+        """Run a coroutine in the persistent event loop."""
+        self.start()
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+    def stop(self):
+        """Stop the event loop and thread (typically on app shutdown)."""
+        with self._lock:
+            if self._loop and self._loop.is_running():
+                self._loop.call_soon_threadsafe(self._loop.stop)
+                if self._thread:
+                    self._thread.join(timeout=5)
+                self._loop = None
+                self._thread = None
+                print("[AsyncRunner] Stopped background event loop")
+
+
+# Global singleton instance
+_async_runner: _AsyncRunner | None = None
+_async_runner_lock = threading.Lock()
+
+
+def _get_async_runner() -> _AsyncRunner:
+    """Get or create the global async runner."""
+    global _async_runner
+    with _async_runner_lock:
+        if _async_runner is None:
+            _async_runner = _AsyncRunner()
+    return _async_runner
+
+
 def run_async(coro):
     """Run async function in sync context - safe for Streamlit.
 
-    Always runs in a fresh thread to avoid event loop caching issues
-    with the Daytona SDK between Streamlit reruns.
+    Uses a persistent background event loop to avoid "Event loop is closed" errors.
+    The Daytona SDK's aiohttp client caches event loop references, so we must keep
+    the same event loop alive between calls rather than creating/closing new ones.
     """
-    # Clear cached modules that might hold stale event loop references
-    modules_to_clear = [
-        k
-        for k in sys.modules.keys()
-        if k.startswith(("daytona", "harbor.environments"))
-    ]
-    for mod in modules_to_clear:
-        sys.modules.pop(mod, None)
-
-    # Always run in a new thread with a fresh event loop
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(asyncio.run, coro)
-        return future.result()
+    return _get_async_runner().run(coro)
