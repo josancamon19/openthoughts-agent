@@ -20,8 +20,10 @@ from env import (
     run_agent,
     AGENT_CONFIG,
     SUPPORTED_AGENTS,
+    PROVIDER_CONFIG,
     get_models_for_agent,
     get_default_model_for_agent,
+    get_provider_from_model,
 )
 
 load_dotenv()
@@ -586,11 +588,6 @@ def render_rl_tab():
             )
             selected_agent_name = agent_options[selected_display_name]
 
-            # Show API key requirement
-            agent_config = AGENT_CONFIG[selected_agent_name]
-            api_key_env = agent_config["api_key_env"]
-            st.caption(f"**Requires:** `{api_key_env}`")
-
         with control_col2:
             # Model selection based on selected agent
             available_models = get_models_for_agent(selected_agent_name)
@@ -605,7 +602,12 @@ def render_rl_tab():
                 key="model_select",
             )
             selected_model = model_options[selected_model_display]
-            st.caption(f"**Using:** `{selected_model}`")
+
+            # Show API key requirement based on provider (dynamically detected from model)
+            provider = get_provider_from_model(selected_model, selected_agent_name)
+            provider_config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["anthropic"])
+            required_api_key_env = provider_config["api_key_env"]
+            st.caption(f"**Requires:** `{required_api_key_env}`")
 
         with control_col3:
             start_task_clicked = st.button(
@@ -635,14 +637,16 @@ def render_rl_tab():
             if env_api_key:
                 st.session_state.daytona_api_key = env_api_key
 
-            # Get the required API key for the selected agent
-            required_api_key = AGENT_CONFIG[selected_agent_name]["api_key_env"]
+            # Get the required API key based on model provider (dynamic detection)
+            model_provider = get_provider_from_model(selected_model, selected_agent_name)
+            model_provider_config = PROVIDER_CONFIG.get(model_provider, PROVIDER_CONFIG["anthropic"])
+            required_api_key = model_provider_config["api_key_env"]
 
             if not st.session_state.get("daytona_api_key"):
                 st.session_state.show_api_key_dialog = True
             elif not os.environ.get(required_api_key):
                 st.error(
-                    f"{required_api_key} not set. Add it in the sidebar or .env file (required for {selected_display_name})"
+                    f"{required_api_key} not set. Add it in the sidebar or .env file (required for {model_provider} provider)"
                 )
             else:
                 st.session_state.running_task = True

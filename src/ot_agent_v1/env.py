@@ -108,6 +108,22 @@ AGENT_PROVIDERS = {
     "openhands": ["anthropic", "openai", "gemini"],  # Supports multiple providers
 }
 
+# Provider configuration: API base URLs and API key environment variables
+PROVIDER_CONFIG = {
+    "anthropic": {
+        "base_url": "https://api.anthropic.com",
+        "api_key_env": "ANTHROPIC_API_KEY",
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "api_key_env": "GEMINI_API_KEY",
+    },
+}
+
 # Model format type for each agent
 AGENT_MODEL_FORMAT = {
     "claude-code": "direct",  # Uses direct model name
@@ -139,6 +155,78 @@ def get_models_for_agent(agent_name: str) -> list[tuple[str, str, str]]:
             models.append((display_name, model_id, formatted_name))
 
     return models
+
+
+def get_provider_from_model(model_name: str, agent_name: str) -> str:
+    """
+    Detect the provider from a model name based on the agent's model format.
+
+    Model formats:
+    - cline: "provider:model" (e.g., "openai:gpt-5.1-codex-max")
+    - litellm: "provider/model" (e.g., "openai/gpt-5.1-codex-max")
+    - direct: just model name (e.g., "gpt-5.1-codex-max") - infer from agent's supported providers
+
+    Returns the provider name (anthropic, openai, gemini).
+    """
+    model_format = AGENT_MODEL_FORMAT.get(agent_name, "litellm")
+
+    if model_format == "cline" and ":" in model_name:
+        # Format: "provider:model"
+        return model_name.split(":")[0]
+    elif model_format == "litellm" and "/" in model_name:
+        # Format: "provider/model"
+        return model_name.split("/")[0]
+    elif model_format == "direct":
+        # Direct format - infer provider from agent's supported providers
+        # and match against known model prefixes
+        for provider, models in MODELS.items():
+            for model_id in models.keys():
+                if model_name == model_id or model_name == models[model_id]["direct"]:
+                    return provider
+        # Fallback to first supported provider for this agent
+        providers = AGENT_PROVIDERS.get(agent_name, ["anthropic"])
+        return providers[0]
+
+    # Fallback: try to detect from common prefixes
+    if model_name.startswith(("gpt-", "o1-", "o3-", "davinci", "text-")):
+        return "openai"
+    elif model_name.startswith(("claude-", "claude")):
+        return "anthropic"
+    elif model_name.startswith(("gemini-", "gemini")):
+        return "gemini"
+
+    # Default to anthropic if we can't detect
+    return "anthropic"
+
+
+def setup_provider_env_vars(model_name: str, agent_name: str) -> str:
+    """
+    Set up environment variables for the detected provider.
+
+    Sets BASE_URL and API_KEY based on the model's provider.
+    Returns the provider name.
+
+    Raises ValueError if the required API key is not set.
+    """
+    provider = get_provider_from_model(model_name, agent_name)
+    provider_config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["anthropic"])
+
+    # Set BASE_URL for agents that need it
+    os.environ["BASE_URL"] = provider_config["base_url"]
+
+    # Set API_KEY (generic key that some agents like Cline CLI use)
+    api_key_env = provider_config["api_key_env"]
+    api_key = os.environ.get(api_key_env)
+
+    if not api_key:
+        raise ValueError(
+            f"{api_key_env} not set in environment (required for {provider} provider)"
+        )
+
+    # Some agents expect a generic API_KEY env var
+    os.environ["API_KEY"] = api_key
+
+    return provider
 
 
 def get_default_model_for_agent(agent_name: str) -> str:
@@ -289,9 +377,6 @@ async def spin_up_environment(
     model_name: str | None = None,
     status_fn: Callable[[str], None] = print,
 ):
-    # Get agent configuration
-    agent_config = get_agent_config(agent_name)
-
     # Use agent-specific default model if not provided
     if model_name is None:
         model_name = get_default_model_for_agent(agent_name)
@@ -304,14 +389,11 @@ async def spin_up_environment(
     if "MAX_THINKING_TOKENS" not in os.environ:
         os.environ["MAX_THINKING_TOKENS"] = DEFAULT_MAX_THINKING_TOKENS
 
-    # Verify API key based on agent requirements
-    api_key_env = agent_config["api_key_env"]
-    if not os.environ.get(api_key_env):
-        raise ValueError(f"{api_key_env} not set in environment")
-
-    # Cline CLI expects API_KEY env var, copy from ANTHROPIC_API_KEY
-    if agent_name == "cline-cli" and os.environ.get("ANTHROPIC_API_KEY"):
-        os.environ["API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    # Set up provider-specific environment variables (BASE_URL, API_KEY)
+    # This dynamically detects the provider from the model name and sets
+    # the appropriate API key and base URL
+    provider = setup_provider_env_vars(model_name, agent_name)
+    status_fn(f"Using provider: {provider}")
 
     # Load task
     task = Task(task_dir)
