@@ -14,8 +14,8 @@ from env import (
     extract_task_to_tempdir,
     run_async,
     run_agent,
-    AgentType,
     AGENT_CONFIG,
+    SUPPORTED_AGENTS,
 )
 
 load_dotenv()
@@ -554,23 +554,23 @@ def render_rl_tab():
         # Agent selection and Start button
         control_col1, control_col2, control_col3 = st.columns([2, 2, 1])
         with control_col1:
-            # Build agent options from AGENT_CONFIG
+            # Build agent options from AGENT_CONFIG (display_name -> agent_name)
             agent_options = {
-                AGENT_CONFIG[agent_type]["display_name"]: agent_type
-                for agent_type in AgentType
+                AGENT_CONFIG[agent_name]["display_name"]: agent_name
+                for agent_name in SUPPORTED_AGENTS
             }
-            selected_agent_name = st.selectbox(
-                "🤖 Agent Harness",
+            selected_display_name = st.selectbox(
+                "Agent Harness",
                 options=list(agent_options.keys()),
                 index=0,
                 key="agent_harness_select",
             )
-            selected_agent_type = agent_options[selected_agent_name]
+            selected_agent_name = agent_options[selected_display_name]
         with control_col2:
             # Show API key requirement for selected agent
-            api_key_env = AGENT_CONFIG[selected_agent_type]["api_key_env"]
-            api_key_desc = AGENT_CONFIG[selected_agent_type]["api_key_description"]
-            default_model = AGENT_CONFIG[selected_agent_type]["default_model"]
+            agent_config = AGENT_CONFIG[selected_agent_name]
+            api_key_env = agent_config["api_key_env"]
+            default_model = agent_config["default_model"]
             st.caption(f"**Requires:** `{api_key_env}`")
             st.caption(f"**Model:** `{default_model}`")
         with control_col3:
@@ -594,17 +594,17 @@ def render_rl_tab():
                 st.session_state.daytona_api_key = env_api_key
 
             # Get the required API key for the selected agent
-            required_api_key = AGENT_CONFIG[selected_agent_type]["api_key_env"]
+            required_api_key = AGENT_CONFIG[selected_agent_name]["api_key_env"]
 
             if not st.session_state.get("daytona_api_key"):
                 st.session_state.show_api_key_dialog = True
             elif not os.environ.get(required_api_key):
-                st.error(f"{required_api_key} not found in .env (required for {selected_agent_name})")
+                st.error(f"{required_api_key} not found in .env (required for {selected_display_name})")
             else:
                 st.session_state.running_task = True
                 st.session_state.task_binary = task_binary
                 st.session_state.task_path = task["path"]
-                st.session_state.selected_agent_type = selected_agent_type
+                st.session_state.selected_agent_name = selected_agent_name
 
         # API Key dialog
         if st.session_state.get("show_api_key_dialog", False):
@@ -628,7 +628,7 @@ def render_rl_tab():
                             st.session_state.running_task = True
                             st.session_state.task_binary = task_binary
                             st.session_state.task_path = task["path"]
-                            st.session_state.selected_agent_type = selected_agent_type
+                            st.session_state.selected_agent_name = selected_agent_name
                             st.rerun()
                         else:
                             st.error(
@@ -643,10 +643,10 @@ def render_rl_tab():
         if st.session_state.get("running_task", False):
             st.session_state.running_task = False
             task_binary_to_use = st.session_state.get("task_binary", task_binary)
-            agent_type_to_use = st.session_state.get("selected_agent_type", AgentType.CLAUDE_CODE)
-            agent_name_to_use = AGENT_CONFIG[agent_type_to_use]["display_name"]
+            agent_name_to_use = st.session_state.get("selected_agent_name", "claude-code")
+            agent_display_name = AGENT_CONFIG[agent_name_to_use]["display_name"]
 
-            with st.status(f"🚀 Starting task with {agent_name_to_use}...", expanded=True) as task_status:
+            with st.status(f"Starting task with {agent_display_name}...", expanded=True) as task_status:
                 st.write("Extracting task files...")
                 task_dir = extract_task_to_tempdir(task_binary_to_use)
 
@@ -684,7 +684,7 @@ def render_rl_tab():
                                         task_dir=task_dir,
                                         instruction=instruction,
                                         daytona_api_key=daytona_key,
-                                        agent_type=agent_type_to_use,
+                                        agent_name=agent_name_to_use,
                                         status_log=status_log,
                                     )
                                 )
