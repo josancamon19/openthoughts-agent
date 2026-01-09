@@ -1,0 +1,56 @@
+{
+  "sft": {
+    "total_samples": 15209,
+    "unique_tasks": 15209,
+    "task_types": {
+      "nl2bash": 7037,
+      "inferredbugs": 8172
+    },
+    "conversation_stats": {
+      "min": 2,
+      "max": 64,
+      "mean": 15.227825629561444,
+      "median": 14.0
+    },
+    "token_stats": {
+      "total": 106458964,
+      "assistant_total": 35083954,
+      "mean_per_trace": 6999.734630810704,
+      "median_per_trace": 5903.0
+    }
+  },
+  "rl": {
+    "total_tasks": 728,
+    "has_dockerfile": 728,
+    "has_tests": 1661,
+    "has_solution": 729,
+    "has_instruction": 728,
+    "archive_stats": {
+      "total_bytes": 10333793,
+      "mean_bytes": 14194.770604395604,
+      "median_bytes": 2290.0
+    },
+    "files_per_task": {
+      "min": 8,
+      "max": 186,
+      "mean": 9.958791208791208
+    },
+    "file_types": {
+      "txt": 1524,
+      "sh": 1500,
+      "md": 780,
+      "json": 728,
+      "toml": 728,
+      "Dockerfile": 728,
+      "log": 142,
+      "gz": 55,
+      "bin": 43,
+      "c": 39,
+      "jpg": 31,
+      "java": 30,
+      "php": 25,
+      "py": 23,
+      "mp4": 22
+    }
+  }
+}
