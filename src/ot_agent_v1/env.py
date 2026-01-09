@@ -100,12 +100,12 @@ AGENT_PROVIDERS = {
     "claude-code": ["anthropic"],  # Claude Code only works with Anthropic
     "codex": ["openai"],  # Codex only works with OpenAI
     "gemini-cli": ["gemini"],  # Gemini CLI only works with Gemini
-    "terminus-2": ["anthropic", "openai"],  # Supports multiple providers
-    "cline-cli": ["anthropic", "openai"],  # Supports multiple providers
-    "swe-agent": ["anthropic", "openai"],  # Supports multiple providers
-    "mini-swe-agent": ["anthropic", "openai"],  # Supports multiple providers
-    "cursor-cli": ["anthropic", "openai"],  # Supports multiple providers
-    "openhands": ["anthropic", "openai"],  # Supports multiple providers
+    "terminus-2": ["anthropic", "openai", "gemini"],  # Supports multiple providers
+    "cline-cli": ["anthropic", "openai", "gemini"],  # Supports multiple providers
+    "swe-agent": ["anthropic", "openai", "gemini"],  # Supports multiple providers
+    "mini-swe-agent": ["anthropic", "openai", "gemini"],  # Supports multiple providers
+    "cursor-cli": ["anthropic", "openai", "gemini"],  # Supports multiple providers
+    "openhands": ["anthropic", "openai", "gemini"],  # Supports multiple providers
 }
 
 # Model format type for each agent
