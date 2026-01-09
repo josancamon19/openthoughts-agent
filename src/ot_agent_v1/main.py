@@ -128,6 +128,45 @@ st.markdown(
     section[data-testid="stSidebar"] > div {
         width: 280px !important;
     }
+    
+    /* Improve selectbox styling */
+    div[data-testid="stSelectbox"] {
+        margin-bottom: 0.5rem;
+    }
+    div[data-testid="stSelectbox"] > div > div {
+        background: #111118;
+        border: 1px solid #2d3748;
+        border-radius: 8px;
+    }
+    div[data-testid="stSelectbox"] label {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #a0aec0;
+        margin-bottom: 0.25rem;
+    }
+    
+    /* Style the primary button */
+    button[data-testid="stBaseButton-primary"] {
+        background: linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%);
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.75rem 1.5rem;
+        transition: all 0.2s ease;
+    }
+    button[data-testid="stBaseButton-primary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(34, 211, 238, 0.3);
+    }
+    
+    /* Task control section styling */
+    .task-controls {
+        background: #111118;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -560,70 +599,90 @@ def render_rl_tab():
 
         st.divider()
 
-        # Header with task name and controls
-        st.subheader(f"Task: {task['path']}")
+        # Build agent options from AGENT_CONFIG (display_name -> agent_name)
+        # Add ⚠️ for agents requiring Daytona Tier 3 (uv/pip install)
+        def format_agent_display(agent_name: str) -> str:
+            config = AGENT_CONFIG[agent_name]
+            name = config["display_name"]
+            if config.get("requires_tier3", False):
+                return f"⚠️ {name}"
+            return name
 
-        # Agent selection, Model selection, and Start button
-        control_col1, control_col2, control_col3 = st.columns([2, 2, 1])
-        with control_col1:
-            # Build agent options from AGENT_CONFIG (display_name -> agent_name)
-            # Add ⚠️ for agents requiring Daytona Tier 3 (uv/pip install)
-            def format_agent_display(agent_name: str) -> str:
-                config = AGENT_CONFIG[agent_name]
-                name = config["display_name"]
-                if config.get("requires_tier3", False):
-                    return f"⚠️ {name}"
-                return name
+        agent_options = {
+            format_agent_display(agent_name): agent_name
+            for agent_name in SUPPORTED_AGENTS
+        }
 
-            agent_options = {
-                format_agent_display(agent_name): agent_name
-                for agent_name in SUPPORTED_AGENTS
-            }
-            selected_display_name = st.selectbox(
-                "Agent Harness",
-                options=list(agent_options.keys()),
-                index=0,
-                key="agent_harness_select",
-                help="⚠️ = Requires Daytona Tier 3 (uv/pip network access)",
-            )
-            selected_agent_name = agent_options[selected_display_name]
+        # Task control panel
+        with st.container():
+            # Header row with task name and start button
+            header_col, btn_col = st.columns([4, 1])
+            with header_col:
+                st.markdown(f"### 📋 {task['path']}")
+            with btn_col:
+                start_task_clicked = st.button(
+                    "🚀 Run Task",
+                    type="primary",
+                    key="start_task_btn",
+                    use_container_width=True,
+                )
 
-        with control_col2:
-            # Model selection based on selected agent
-            available_models = get_models_for_agent(selected_agent_name)
-            model_options = {
-                model_info[0]: model_info[2]  # display_name -> formatted_model_name
-                for model_info in available_models
-            }
-            selected_model_display = st.selectbox(
-                "Model",
-                options=list(model_options.keys()),
-                index=0,
-                key="model_select",
-            )
-            selected_model = model_options[selected_model_display]
+            st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
 
-            # Show API key requirement based on provider (dynamically detected from model)
+            # Agent and Model selection row
+            col_agent, col_model = st.columns(2)
+            with col_agent:
+                selected_display_name = st.selectbox(
+                    "🤖 Agent",
+                    options=list(agent_options.keys()),
+                    index=0,
+                    key="agent_harness_select",
+                    help="⚠️ = Requires Daytona Tier 3 (uv/pip network access)",
+                )
+                selected_agent_name = agent_options[selected_display_name]
+
+            with col_model:
+                # Model selection based on selected agent
+                available_models = get_models_for_agent(selected_agent_name)
+                model_options = {
+                    model_info[0]: model_info[2]  # display_name -> formatted_model_name
+                    for model_info in available_models
+                }
+                selected_model_display = st.selectbox(
+                    "🧠 Model",
+                    options=list(model_options.keys()),
+                    index=0,
+                    key="model_select",
+                )
+                selected_model = model_options[selected_model_display]
+
+            # Provider info row
             provider = get_provider_from_model(selected_model, selected_agent_name)
-            provider_config = PROVIDER_CONFIG.get(provider, PROVIDER_CONFIG["anthropic"])
+            provider_config = PROVIDER_CONFIG.get(
+                provider, PROVIDER_CONFIG["anthropic"]
+            )
             required_api_key_env = provider_config["api_key_env"]
-            st.caption(f"**Requires:** `{required_api_key_env}`")
 
-        with control_col3:
-            start_task_clicked = st.button(
-                "🚀 Start Task",
-                type="primary",
-                key="start_task_btn",
-                use_container_width=True,
+            # Check if API key is set
+            api_key_set = bool(os.environ.get(required_api_key_env))
+            api_key_status = "✅" if api_key_set else "❌"
+
+            st.markdown(
+                f"<div style='background: #111118; border: 1px solid #1e293b; border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.5rem;'>"
+                f"<span style='color: #64748b; font-size: 0.85rem;'>"
+                f"{api_key_status} <b>API Key:</b> <code>{required_api_key_env}</code> &nbsp;·&nbsp; "
+                f"<b>Provider:</b> <code>{provider}</code>"
+                f"</span></div>",
+                unsafe_allow_html=True,
             )
 
-        # Show Daytona tier warning for agents that need it
-        if AGENT_CONFIG[selected_agent_name].get("requires_tier3", False):
-            st.warning(
-                "⚠️ **Daytona Tier 3 Required** — This agent uses `uv`/`pip` for installation, "
-                "which requires network access during setup. Daytona's free tier blocks outbound "
-                "network requests, causing installation to fail. Upgrade to Tier 3 or use a non-⚠️ agent."
-            )
+            # Show Daytona tier warning for agents that need it
+            if AGENT_CONFIG[selected_agent_name].get("requires_tier3", False):
+                st.warning(
+                    "⚠️ **Daytona Tier 3 Required** — This agent uses `uv`/`pip` for installation, "
+                    "which requires network access during setup. Daytona's free tier blocks outbound "
+                    "network requests, causing installation to fail. Upgrade to Tier 3 or use a non-⚠️ agent."
+                )
 
         # Decode the binary
         row = ds[task["ds_idx"]]
@@ -638,8 +697,12 @@ def render_rl_tab():
                 st.session_state.daytona_api_key = env_api_key
 
             # Get the required API key based on model provider (dynamic detection)
-            model_provider = get_provider_from_model(selected_model, selected_agent_name)
-            model_provider_config = PROVIDER_CONFIG.get(model_provider, PROVIDER_CONFIG["anthropic"])
+            model_provider = get_provider_from_model(
+                selected_model, selected_agent_name
+            )
+            model_provider_config = PROVIDER_CONFIG.get(
+                model_provider, PROVIDER_CONFIG["anthropic"]
+            )
             required_api_key = model_provider_config["api_key_env"]
 
             if not st.session_state.get("daytona_api_key"):
