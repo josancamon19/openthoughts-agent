@@ -69,6 +69,9 @@ DEFAULT_OPENHANDS_MODEL = "anthropic/claude-opus-4-5-20251101"
 # Default Cline model (format: provider:model-id)
 DEFAULT_CLINE_MODEL = "anthropic:claude-opus-4-5-20251101"
 
+# Default SWE Agent model (litellm format)
+DEFAULT_SWE_AGENT_MODEL = "anthropic/claude-opus-4-5-20251101"
+
 # Agent configuration - display names and default models
 # Using Harbor's AgentName values as keys
 AGENT_CONFIG = {
@@ -106,6 +109,16 @@ AGENT_CONFIG = {
         "display_name": "Cline CLI",
         "api_key_env": "ANTHROPIC_API_KEY",  # We'll copy this to API_KEY for Cline
         "default_model": DEFAULT_CLINE_MODEL,  # Format: provider:model-id
+    },
+    "swe-agent": {
+        "display_name": "SWE Agent",
+        "api_key_env": "ANTHROPIC_API_KEY",  # Also supports OPENAI_API_KEY, TOGETHER_API_KEY
+        "default_model": DEFAULT_SWE_AGENT_MODEL,  # LiteLLM format
+    },
+    "mini-swe-agent": {
+        "display_name": "Mini SWE Agent",
+        "api_key_env": "ANTHROPIC_API_KEY",  # Also supports MSWEA_API_KEY
+        "default_model": DEFAULT_SWE_AGENT_MODEL,  # LiteLLM format: provider/model
     },
 }
 
@@ -423,6 +436,52 @@ async def convert_logs_to_trajectory(
                     )
                 except Exception as e:
                     print(f"[DEBUG] Failed to convert cline.txt: {e}")
+
+        # Try swe-agent.trajectory.json if still no trajectory
+        if not trajectory_path.exists():
+            swe_agent_traj = logs_dir / "swe-agent.trajectory.json"
+            if swe_agent_traj.exists():
+                print(
+                    "[DEBUG] trajectory.json not found, using swe-agent.trajectory.json as fallback"
+                )
+                try:
+                    with open(swe_agent_traj) as f:
+                        swe_data = json.load(f)
+                    # SWE-agent has its own format, wrap it
+                    with open(trajectory_path, "w") as f:
+                        json.dump(
+                            {"events": swe_data.get("trajectory", []), "source": "swe-agent.trajectory.json", "info": swe_data.get("info", {})},
+                            f,
+                            indent=2,
+                        )
+                    print(
+                        "[DEBUG] Created trajectory.json from swe-agent.trajectory.json"
+                    )
+                except Exception as e:
+                    print(f"[DEBUG] Failed to convert swe-agent.trajectory.json: {e}")
+
+        # Try mini-swe-agent.trajectory.json if still no trajectory
+        if not trajectory_path.exists():
+            mini_swe_traj = logs_dir / "mini-swe-agent.trajectory.json"
+            if mini_swe_traj.exists():
+                print(
+                    "[DEBUG] trajectory.json not found, using mini-swe-agent.trajectory.json as fallback"
+                )
+                try:
+                    with open(mini_swe_traj) as f:
+                        mini_data = json.load(f)
+                    # Mini-swe-agent has its own format, wrap it
+                    with open(trajectory_path, "w") as f:
+                        json.dump(
+                            {"events": mini_data.get("messages", []), "source": "mini-swe-agent.trajectory.json", "info": mini_data.get("info", {})},
+                            f,
+                            indent=2,
+                        )
+                    print(
+                        "[DEBUG] Created trajectory.json from mini-swe-agent.trajectory.json"
+                    )
+                except Exception as e:
+                    print(f"[DEBUG] Failed to convert mini-swe-agent.trajectory.json: {e}")
 
         # Try openhands.trajectory.json if still no trajectory (native OpenHands format)
         if not trajectory_path.exists():
