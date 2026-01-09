@@ -3,6 +3,7 @@ OpenThoughts Agent Datasets Dashboard
 """
 
 import io
+import json
 import os
 import tarfile
 import threading
@@ -25,6 +26,7 @@ from env import (
     get_default_model_for_agent,
     get_provider_from_model,
 )
+from evaluator import stream_debug_agent
 
 load_dotenv()
 
@@ -166,6 +168,31 @@ st.markdown(
         border-radius: 12px;
         padding: 1.5rem;
         margin: 1rem 0;
+    }
+    
+    /* Debug button styling */
+    button[data-testid="stBaseButton-secondary"] {
+        background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        color: white;
+    }
+    button[data-testid="stBaseButton-secondary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
+    
+    /* Debug output styling */
+    .debug-output {
+        background: #0f0f1a;
+        border: 1px solid #2d2d44;
+        border-radius: 8px;
+        padding: 1rem;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.85rem;
+        max-height: 500px;
+        overflow-y: auto;
     }
 </style>
 """,
@@ -864,6 +891,111 @@ def render_rl_tab():
                 st.error("❌ **Task FAILED** - Solution did not pass tests")
             else:
                 st.warning("⚠️ **Test status unknown**")
+
+            # Debug Completion button
+            debug_col1, debug_col2 = st.columns([1, 4])
+            with debug_col1:
+                debug_clicked = st.button(
+                    "🔍 Debug Completion",
+                    type="secondary",
+                    key="debug_completion_btn",
+                    help="Launch Claude Code to investigate the task result",
+                )
+
+            # Handle debug button click
+            if debug_clicked:
+                # Clear previous result when starting new debug
+                st.session_state.debug_result = None
+                st.session_state.debug_running = True
+                st.rerun()
+
+            if st.session_state.get("debug_running", False):
+                with st.status(
+                    "🔍 Claude Code is investigating...", expanded=True
+                ) as debug_status:
+                    debug_output = st.empty()
+                    collected_text = []
+
+                    try:
+                        # Get instruction from task files
+                        instruction_content = None
+                        for fname, finfo in files.items():
+                            if "instruction" in fname.lower():
+                                instruction_content = finfo.get("content", "")
+                                break
+
+                        # Stream debug agent output
+                        for msg in stream_debug_agent(
+                            ssh_command=result.get("ssh_command", ""),
+                            task_name=result.get("task_name", "unknown"),
+                            test_passed=test_passed,
+                            test_output=result.get("test_output"),
+                            instruction=instruction_content,
+                        ):
+                            # Handle error dict from our wrapper
+                            if isinstance(msg, dict) and msg.get("error"):
+                                st.error(f"Debug error: {msg['error']}")
+                                break
+
+                            msg_text = None
+
+                            # ResultMessage - final result
+                            if hasattr(msg, "result") and msg.result:
+                                msg_text = f"\n\n**📋 Final Analysis:**\n{msg.result}"
+
+                            # AssistantMessage - has content list
+                            elif hasattr(msg, "content") and isinstance(
+                                msg.content, list
+                            ):
+                                for block in msg.content:
+                                    # TextBlock
+                                    if hasattr(block, "text"):
+                                        msg_text = block.text
+                                    # ThinkingBlock
+                                    elif hasattr(block, "thinking"):
+                                        msg_text = (
+                                            f"💭 *{block.thinking[:500]}...*"
+                                            if len(block.thinking) > 500
+                                            else f"💭 *{block.thinking}*"
+                                        )
+                                    # ToolUseBlock
+                                    elif hasattr(block, "name") and hasattr(
+                                        block, "input"
+                                    ):
+                                        tool_input_str = json.dumps(
+                                            block.input, indent=2
+                                        )
+                                        if len(tool_input_str) > 300:
+                                            tool_input_str = (
+                                                tool_input_str[:300] + "..."
+                                            )
+                                        msg_text = f"\n🔧 **{block.name}**\n```json\n{tool_input_str}\n```"
+
+                            if msg_text and msg_text.strip():
+                                collected_text.append(msg_text)
+                                # Update display with collected output
+                                debug_output.markdown(
+                                    "\n\n---\n\n".join(collected_text[-15:])
+                                )
+
+                        debug_status.update(
+                            label="✅ Debug analysis complete!", state="complete"
+                        )
+                        st.session_state.debug_running = False
+                        st.session_state.debug_result = "\n\n---\n\n".join(
+                            collected_text
+                        )
+
+                    except Exception as e:
+                        debug_status.update(label="❌ Debug failed", state="error")
+                        st.error(f"Debug error: {e}")
+                        st.code(traceback.format_exc())
+                        st.session_state.debug_running = False
+
+            # Show previous debug result only if not currently running
+            elif st.session_state.get("debug_result"):
+                with st.expander("🔍 Previous Debug Analysis", expanded=True):
+                    st.markdown(st.session_state.debug_result)
 
             with st.expander("🤖 Agent Run Result", expanded=True):
                 col1, col2, col3 = st.columns(3)
