@@ -426,9 +426,7 @@ async def convert_logs_to_trajectory(
         if not trajectory_path.exists():
             cline_txt = logs_dir / "cline.txt"
             if cline_txt.exists():
-                print(
-                    "[DEBUG] trajectory.json not found, using cline.txt as fallback"
-                )
+                print("[DEBUG] trajectory.json not found, using cline.txt as fallback")
                 try:
                     content = cline_txt.read_text()
                     # cline.txt is raw output, wrap it as a single event
@@ -460,7 +458,11 @@ async def convert_logs_to_trajectory(
                     # SWE-agent has its own format, wrap it
                     with open(trajectory_path, "w") as f:
                         json.dump(
-                            {"events": swe_data.get("trajectory", []), "source": "swe-agent.trajectory.json", "info": swe_data.get("info", {})},
+                            {
+                                "events": swe_data.get("trajectory", []),
+                                "source": "swe-agent.trajectory.json",
+                                "info": swe_data.get("info", {}),
+                            },
                             f,
                             indent=2,
                         )
@@ -483,7 +485,11 @@ async def convert_logs_to_trajectory(
                     # Mini-swe-agent has its own format, wrap it
                     with open(trajectory_path, "w") as f:
                         json.dump(
-                            {"events": mini_data.get("messages", []), "source": "mini-swe-agent.trajectory.json", "info": mini_data.get("info", {})},
+                            {
+                                "events": mini_data.get("messages", []),
+                                "source": "mini-swe-agent.trajectory.json",
+                                "info": mini_data.get("info", {}),
+                            },
                             f,
                             indent=2,
                         )
@@ -491,7 +497,9 @@ async def convert_logs_to_trajectory(
                         "[DEBUG] Created trajectory.json from mini-swe-agent.trajectory.json"
                     )
                 except Exception as e:
-                    print(f"[DEBUG] Failed to convert mini-swe-agent.trajectory.json: {e}")
+                    print(
+                        f"[DEBUG] Failed to convert mini-swe-agent.trajectory.json: {e}"
+                    )
 
         # Try openhands.trajectory.json if still no trajectory (native OpenHands format)
         if not trajectory_path.exists():

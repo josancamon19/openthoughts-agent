@@ -570,7 +570,7 @@ def render_rl_tab():
                 if config.get("requires_tier3", False):
                     return f"⚠️ {name}"
                 return name
-            
+
             agent_options = {
                 format_agent_display(agent_name): agent_name
                 for agent_name in SUPPORTED_AGENTS
@@ -580,7 +580,7 @@ def render_rl_tab():
                 options=list(agent_options.keys()),
                 index=0,
                 key="agent_harness_select",
-                help="⚠️ = Requires Daytona Tier 3 (uv/pip network access)"
+                help="⚠️ = Requires Daytona Tier 3 (uv/pip network access)",
             )
             selected_agent_name = agent_options[selected_display_name]
         with control_col2:
@@ -811,7 +811,7 @@ def render_rl_tab():
                     st.markdown("### 📜 Agent Trajectory")
                     # Handle both "steps" (terminus-2) and "events" (claude-code fallback) formats
                     steps = trajectory.get("steps") or trajectory.get("events", [])
-                    
+
                     # Debug: show what we're working with
                     print(f"[UI DEBUG] trajectory keys: {trajectory.keys()}")
                     print(f"[UI DEBUG] num steps: {len(steps)}")
@@ -822,19 +822,35 @@ def render_rl_tab():
                     # For ATIF format, use 'source' field; for Claude Code, use 'type' field
                     # For Codex, count item.completed events
                     meaningful_events = [
-                        s for s in steps 
-                        if s.get("type") not in ("system", "result", "thread.started", "turn.started", "turn.completed", "item.started")
+                        s
+                        for s in steps
+                        if s.get("type")
+                        not in (
+                            "system",
+                            "result",
+                            "thread.started",
+                            "turn.started",
+                            "turn.completed",
+                            "item.started",
+                        )
                         and s.get("source") not in ("system",)
                     ]
-                    st.caption(f"{len(meaningful_events)} turns (raw: {len(steps)} steps)")
-                    print(f"[UI DEBUG] meaningful_events count: {len(meaningful_events)}, raw steps: {len(steps)}")
-                    
+                    st.caption(
+                        f"{len(meaningful_events)} turns (raw: {len(steps)} steps)"
+                    )
+                    print(
+                        f"[UI DEBUG] meaningful_events count: {len(meaningful_events)}, raw steps: {len(steps)}"
+                    )
+
                     # Show note for Codex (reasoning is encrypted by OpenAI)
                     is_codex = trajectory.get("source") == "codex.txt" or any(
-                        s.get("type") in ("thread.started", "item.completed") for s in steps[:5]
+                        s.get("type") in ("thread.started", "item.completed")
+                        for s in steps[:5]
                     )
                     if is_codex:
-                        st.info("🔐 **Codex reasoning is encrypted** - OpenAI doesn't expose thinking traces in plaintext.")
+                        st.info(
+                            "🔐 **Codex reasoning is encrypted** - OpenAI doesn't expose thinking traces in plaintext."
+                        )
 
                     for step in steps:
                         event_type = step.get("type", "unknown")
@@ -844,35 +860,46 @@ def render_rl_tab():
                             continue
                         if event_type == "result":
                             continue
-                        
+
                         # Skip Codex lifecycle events
-                        if event_type in ("thread.started", "turn.started", "turn.completed", "item.started"):
+                        if event_type in (
+                            "thread.started",
+                            "turn.started",
+                            "turn.completed",
+                            "item.started",
+                        ):
                             continue
-                        
+
                         # Handle Codex item.completed events
                         if event_type == "item.completed":
                             item = step.get("item", {})
                             item_type = item.get("type", "")
-                            
+
                             if item_type == "command_execution":
                                 command = item.get("command", "")
                                 output = item.get("aggregated_output", "")
                                 exit_code = item.get("exit_code")
                                 status = item.get("status", "")
-                                
+
                                 st.markdown(
                                     '<div class="msg-assistant"><div class="msg-role">🤖 codex</div></div>',
                                     unsafe_allow_html=True,
                                 )
                                 st.markdown("**🔧 Command:**")
                                 st.code(command, language="bash")
-                                
+
                                 if output:
-                                    status_icon = "✅" if status == "completed" else "❌"
+                                    status_icon = (
+                                        "✅" if status == "completed" else "❌"
+                                    )
                                     label = f"{status_icon} Output (exit: {exit_code})"
-                                    with st.expander(label, expanded=status != "completed"):
-                                        st.code(output.replace("\r\n", "\n"), language=None)
-                            
+                                    with st.expander(
+                                        label, expanded=status != "completed"
+                                    ):
+                                        st.code(
+                                            output.replace("\r\n", "\n"), language=None
+                                        )
+
                             elif item_type == "agent_message":
                                 text = item.get("text", "")
                                 if text:
@@ -881,9 +908,9 @@ def render_rl_tab():
                                         unsafe_allow_html=True,
                                     )
                                     st.markdown(text)
-                            
+
                             continue
-                        
+
                         # Handle Codex error events
                         if event_type == "error":
                             error_msg = step.get("message", "Unknown error")
@@ -1035,7 +1062,10 @@ def render_rl_tab():
                                     unsafe_allow_html=True,
                                 )
                                 # Show the full output in an expander
-                                with st.expander(f"View output ({len(content):,} chars)", expanded=True):
+                                with st.expander(
+                                    f"View output ({len(content):,} chars)",
+                                    expanded=True,
+                                ):
                                     st.code(content, language=None)
                 else:
                     st.warning("No trajectory data available")
@@ -1094,12 +1124,14 @@ def render_sidebar():
     with st.sidebar:
         st.markdown("### 🔑 API Keys")
         st.caption("Configure API keys for agents and environments")
-        
+
         # Daytona API Key (required for all agents)
         st.markdown("**Daytona** (required)")
         daytona_key = st.text_input(
             "Daytona API Key",
-            value=st.session_state.get("daytona_api_key", os.environ.get("DAYTONA_API_KEY", "")),
+            value=st.session_state.get(
+                "daytona_api_key", os.environ.get("DAYTONA_API_KEY", "")
+            ),
             type="password",
             key="sidebar_daytona_key",
             placeholder="dtn_...",
@@ -1107,12 +1139,12 @@ def render_sidebar():
         )
         if daytona_key:
             st.session_state.daytona_api_key = daytona_key
-        
+
         st.divider()
-        
+
         # Agent API Keys
         st.markdown("**Agent API Keys**")
-        
+
         # Anthropic (Claude Code, Terminus2)
         anthropic_key = st.text_input(
             "Anthropic API Key",
@@ -1124,7 +1156,7 @@ def render_sidebar():
         )
         if anthropic_key:
             os.environ["ANTHROPIC_API_KEY"] = anthropic_key
-        
+
         # OpenAI (Codex)
         openai_key = st.text_input(
             "OpenAI API Key",
@@ -1136,7 +1168,7 @@ def render_sidebar():
         )
         if openai_key:
             os.environ["OPENAI_API_KEY"] = openai_key
-        
+
         # Gemini
         gemini_key = st.text_input(
             "Gemini API Key",
@@ -1148,7 +1180,7 @@ def render_sidebar():
         )
         if gemini_key:
             os.environ["GEMINI_API_KEY"] = gemini_key
-        
+
         # Cursor
         cursor_key = st.text_input(
             "Cursor API Key",
@@ -1160,25 +1192,25 @@ def render_sidebar():
         )
         if cursor_key:
             os.environ["CURSOR_API_KEY"] = cursor_key
-        
+
         st.divider()
-        
+
         # Status indicators
         st.markdown("**Status**")
-        
+
         def key_status(name: str, env_var: str, prefix: str = "") -> None:
             value = os.environ.get(env_var, "")
             if value and (not prefix or value.startswith(prefix)):
                 st.markdown(f"✅ {name}")
             else:
                 st.markdown(f"⬜ {name}")
-        
+
         key_status("Daytona", "DAYTONA_API_KEY", "dtn_")
         key_status("Anthropic", "ANTHROPIC_API_KEY", "sk-ant-")
         key_status("OpenAI", "OPENAI_API_KEY", "sk-")
         key_status("Gemini", "GEMINI_API_KEY", "AIza")
         key_status("Cursor", "CURSOR_API_KEY", "")
-        
+
         # Also set Daytona from session state to env
         if st.session_state.get("daytona_api_key"):
             os.environ["DAYTONA_API_KEY"] = st.session_state.daytona_api_key
@@ -1190,7 +1222,7 @@ def render_sidebar():
 def main():
     # Render sidebar first
     render_sidebar()
-    
+
     tab1, tab2 = st.tabs(["📝 SFT Dataset", "🎮 RL Dataset"])
 
     with tab1:
